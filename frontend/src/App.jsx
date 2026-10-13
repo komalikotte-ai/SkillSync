@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   FileText,
   Upload,
@@ -15,10 +15,104 @@ import {
   RotateCcw,
   FileCheck2,
   AlertCircle,
+  GraduationCap,
+  ListChecks,
 } from "lucide-react";
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000";
+
+function getLearningRoadmap(missingSkills = []) {
+  const skills = [...new Set(missingSkills)].slice(0, 6);
+
+  if (!skills.length) {
+    return [
+      {
+        title: "Review the target role",
+        detail:
+          "Compare the job requirements with your resume and verify that the detected matched skills reflect your real experience.",
+      },
+      {
+        title: "Strengthen one core skill",
+        detail:
+          "Choose an important skill for the role and complete a small hands-on exercise or project using it.",
+      },
+      {
+        title: "Practise and document",
+        detail:
+          "Solve a practical task, document what you learned, and save evidence of your work in your portfolio.",
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "Week 1 · Learn the foundations",
+      detail: `Start with ${skills.slice(0, 2).join(" and ")}. Learn the basic concepts and follow beginner examples.`,
+    },
+    {
+      title: "Week 2 · Practise with small tasks",
+      detail: `Complete short exercises using ${skills.slice(0, 3).join(", ")}. Focus on understanding each step.`,
+    },
+    {
+      title: "Week 3 · Apply the skills",
+      detail: `Create a small project or practical demonstration using ${skills.slice(0, 3).join(", ")}.`,
+    },
+    {
+      title: "Week 4 · Review and show evidence",
+      detail: `Test your work, document your results, and update your resume only with skills you can demonstrate.${
+        skills.length > 3
+          ? ` Then begin learning ${skills.slice(3).join(", ")}.`
+          : ""
+      }`,
+    },
+  ];
+}
+
+function getResumeActions(
+  matchedSkills = [],
+  missingSkills = [],
+  backendSuggestions = []
+) {
+  const actions = [];
+
+  if (matchedSkills.length) {
+    actions.push({
+      title: "Highlight relevant experience",
+      detail: `If accurate, explain where you used ${matchedSkills
+        .slice(0, 3)
+        .join(", ")} in a project, internship, or coursework. Describe your contribution and the outcome.`,
+    });
+  }
+
+  if (missingSkills.length) {
+    actions.push({
+      title: "Address skill gaps honestly",
+      detail: `The job description mentions ${missingSkills
+        .slice(0, 4)
+        .join(", ")}. Add these skills only if you have relevant experience. Otherwise, practise them before listing them.`,
+    });
+  }
+
+  actions.push({
+    title: "Improve your project descriptions",
+    detail:
+      "Use this template and replace the brackets with true details: Built [project or feature] using [tools actually used] to [purpose]. Include a measured result only if you have evidence.",
+  });
+
+  const safeSuggestions = Array.isArray(backendSuggestions)
+    ? backendSuggestions
+    : [];
+
+  safeSuggestions.slice(0, 2).forEach((suggestion) => {
+    actions.push({
+      title: "Analyzer suggestion",
+      detail: String(suggestion),
+    });
+  });
+
+  return actions.slice(0, 5);
+}
 
 function App() {
   const [resume, setResume] = useState(null);
@@ -28,6 +122,9 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const resumeInputRef = useRef(null);
+  const jdInputRef = useRef(null);
 
   async function analyzeResume(event) {
     event.preventDefault();
@@ -39,6 +136,11 @@ function App() {
       return;
     }
 
+    if (resume.size > 5 * 1024 * 1024) {
+      setError("Your resume must be 5 MB or smaller.");
+      return;
+    }
+
     if (jdMode === "text" && !jobDescription.trim()) {
       setError("Please enter the job description.");
       return;
@@ -47,6 +149,21 @@ function App() {
     if (jdMode === "file" && !jdFile) {
       setError("Please upload a job description PDF or TXT file.");
       return;
+    }
+
+    if (jdMode === "file") {
+      const allowedTypes = [".pdf", ".txt"];
+      const fileName = jdFile.name.toLowerCase();
+
+      if (!allowedTypes.some((extension) => fileName.endsWith(extension))) {
+        setError("The job description must be a PDF or TXT file.");
+        return;
+      }
+
+      if (jdFile.size > 5 * 1024 * 1024) {
+        setError("The job description file must be 5 MB or smaller.");
+        return;
+      }
     }
 
     const formData = new FormData();
@@ -69,10 +186,21 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Analysis failed. Please try again.");
+        const message =
+          typeof data.detail === "string"
+            ? data.detail
+            : "Analysis failed. Please check your files and try again.";
+
+        throw new Error(message);
       }
 
       setResult(data);
+      setTimeout(() => {
+        document.getElementById("results")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 100);
     } catch (err) {
       setError(
         err.message ||
@@ -91,12 +219,90 @@ function App() {
     setResult(null);
     setError("");
 
-    const resumeInput = document.getElementById("resume-upload");
-    const jdInput = document.getElementById("jd-upload");
+    if (resumeInputRef.current) {
+      resumeInputRef.current.value = "";
+    }
 
-    if (resumeInput) resumeInput.value = "";
-    if (jdInput) jdInput.value = "";
+    if (jdInputRef.current) {
+      jdInputRef.current.value = "";
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  function selectFile(event, type) {
+    const file = event.target.files?.[0] || null;
+    setError("");
+    setResult(null);
+
+    if (!file) return;
+
+    if (type === "resume") {
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        setResume(null);
+        event.target.value = "";
+        setError("Please choose a resume in PDF format.");
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        setResume(null);
+        event.target.value = "";
+        setError("Your resume must be 5 MB or smaller.");
+        return;
+      }
+
+      setResume(file);
+    } else {
+      const name = file.name.toLowerCase();
+
+      if (!name.endsWith(".pdf") && !name.endsWith(".txt")) {
+        setJdFile(null);
+        event.target.value = "";
+        setError("Please choose a PDF or TXT job description.");
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        setJdFile(null);
+        event.target.value = "";
+        setError("The job description file must be 5 MB or smaller.");
+        return;
+      }
+
+      setJdFile(file);
+    }
+  }
+
+  const matchedSkills = Array.isArray(result?.matched_skills)
+    ? result.matched_skills
+    : [];
+
+  const missingSkills = Array.isArray(result?.missing_skills)
+    ? result.missing_skills
+    : [];
+
+  const suggestions = Array.isArray(result?.suggestions)
+    ? result.suggestions
+    : [];
+
+  const semanticScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Number(
+        result?.semantic_similarity_score ?? result?.match_score ?? 0
+      ) || 0
+    )
+  );
+
+  const skillScore =
+    result?.skill_match_percentage == null
+      ? null
+      : Math.max(
+          0,
+          Math.min(100, Number(result.skill_match_percentage) || 0)
+        );
 
   return (
     <div className="app-shell">
@@ -105,7 +311,9 @@ function App() {
           <div className="brand-icon">
             <BrainCircuit size={25} />
           </div>
-          <span>Skill<span className="brand-accent">Sync</span></span>
+          <span>
+            Skill<span className="brand-accent">Sync</span>
+          </span>
         </a>
 
         <div className="workspace-label">WORKSPACE</div>
@@ -154,7 +362,9 @@ function App() {
               SMARTER CAREER MATCHING
             </div>
 
-            <h1>Make your next move <span>count.</span></h1>
+            <h1>
+              Make your next move <span>count.</span>
+            </h1>
 
             <p>
               Compare your resume with a job description, uncover skill gaps,
@@ -165,12 +375,15 @@ function App() {
           <div className="welcome-art">
             <div className="art-orbit orbit-one" />
             <div className="art-orbit orbit-two" />
+
             <div className="art-icon">
               <BrainCircuit size={48} strokeWidth={1.5} />
             </div>
+
             <div className="floating-chip chip-one">
               <CheckCircle2 size={15} /> Skills
             </div>
+
             <div className="floating-chip chip-two">
               <Target size={15} /> Match
             </div>
@@ -232,16 +445,25 @@ function App() {
                   Your resume <span>*</span>
                 </label>
 
-                <label className="upload-box" htmlFor="resume-upload">
+                <div
+                  className="upload-box"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => resumeInputRef.current?.click()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      resumeInputRef.current?.click();
+                    }
+                  }}
+                >
                   <input
+                    ref={resumeInputRef}
                     id="resume-upload"
                     type="file"
+                    hidden
                     accept=".pdf,application/pdf"
-                    onChange={(event) => {
-                      setResume(event.target.files?.[0] || null);
-                      setResult(null);
-                      setError("");
-                    }}
+                    onChange={(event) => selectFile(event, "resume")}
                   />
 
                   <div className="upload-icon">
@@ -259,10 +481,17 @@ function App() {
                     </span>
                   </div>
 
-                  <span className="browse-button">
+                  <button
+                    className="browse-button"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      resumeInputRef.current?.click();
+                    }}
+                  >
                     {resume ? "Change" : "Browse"}
-                  </span>
-                </label>
+                  </button>
+                </div>
               </div>
 
               <div className="field-block">
@@ -276,7 +505,11 @@ function App() {
                 <div className="mode-switch">
                   <button
                     type="button"
-                    className={jdMode === "text" ? "mode-button selected" : "mode-button"}
+                    className={
+                      jdMode === "text"
+                        ? "mode-button selected"
+                        : "mode-button"
+                    }
                     onClick={() => {
                       setJdMode("text");
                       setError("");
@@ -289,7 +522,11 @@ function App() {
 
                   <button
                     type="button"
-                    className={jdMode === "file" ? "mode-button selected" : "mode-button"}
+                    className={
+                      jdMode === "file"
+                        ? "mode-button selected"
+                        : "mode-button"
+                    }
                     onClick={() => {
                       setJdMode("file");
                       setError("");
@@ -310,29 +547,41 @@ function App() {
                         setResult(null);
                         setError("");
                       }}
-                      placeholder="Paste the job description here...
+                      placeholder={`Paste the job description here...
 
 Example:
-We are looking for a Python developer with knowledge of machine learning, SQL, and REST APIs..."
+We are looking for a Python developer with knowledge of machine learning, SQL, and REST APIs...`}
                       rows={9}
                       maxLength={30000}
                     />
+
                     <div className="textarea-footer">
-                      <span>Include responsibilities and required skills.</span>
+                      <span>
+                        Include responsibilities and required skills.
+                      </span>
                       <span>{jobDescription.length}/30000</span>
                     </div>
                   </div>
                 ) : (
-                  <label className="upload-box jd-upload-box" htmlFor="jd-upload">
+                  <div
+                    className="upload-box jd-upload-box"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => jdInputRef.current?.click()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        jdInputRef.current?.click();
+                      }
+                    }}
+                  >
                     <input
+                      ref={jdInputRef}
                       id="jd-upload"
                       type="file"
+                      hidden
                       accept=".pdf,.txt,application/pdf,text/plain"
-                      onChange={(event) => {
-                        setJdFile(event.target.files?.[0] || null);
-                        setResult(null);
-                        setError("");
-                      }}
+                      onChange={(event) => selectFile(event, "jd")}
                     />
 
                     <div className="upload-icon">
@@ -341,7 +590,9 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
 
                     <div className="upload-text">
                       <strong>
-                        {jdFile ? jdFile.name : "Upload job description"}
+                        {jdFile
+                          ? jdFile.name
+                          : "Upload job description"}
                       </strong>
                       <span>
                         {jdFile
@@ -350,10 +601,17 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                       </span>
                     </div>
 
-                    <span className="browse-button">
+                    <button
+                      className="browse-button"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        jdInputRef.current?.click();
+                      }}
+                    >
                       {jdFile ? "Change" : "Browse"}
-                    </span>
-                  </label>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -364,7 +622,11 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                 </div>
               )}
 
-              <button className="analyze-button" type="submit" disabled={loading}>
+              <button
+                className="analyze-button"
+                type="submit"
+                disabled={loading}
+              >
                 {loading ? (
                   <>
                     <LoaderCircle className="spin" size={19} />
@@ -417,7 +679,10 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                 </div>
                 <div>
                   <h3>Compare with the role</h3>
-                  <p>Use an AI model to estimate semantic text similarity.</p>
+                  <p>
+                    Use the configured model to estimate semantic text
+                    similarity.
+                  </p>
                 </div>
               </div>
 
@@ -429,7 +694,9 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                 </div>
                 <div>
                   <h3>Discover skill gaps</h3>
-                  <p>See detected skills and suggestions for improvement.</p>
+                  <p>
+                    See detected skills and suggestions for improvement.
+                  </p>
                 </div>
               </div>
             </div>
@@ -441,7 +708,8 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
               </div>
               <p>
                 Tailor your resume to the specific role. Highlight relevant
-                projects and experience rather than adding skills you don't have.
+                projects and experience rather than adding skills you do not
+                have.
               </p>
             </div>
           </aside>
@@ -457,11 +725,15 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                 </div>
                 <h2>Your resume analysis</h2>
                 <p>
-                  Results for <strong>{result.filename}</strong>
+                  Results for <strong>{result.filename || resume?.name}</strong>
                 </p>
               </div>
 
-              <button className="reset-button" onClick={resetForm} type="button">
+              <button
+                className="reset-button"
+                onClick={resetForm}
+                type="button"
+              >
                 <RotateCcw size={16} />
                 New analysis
               </button>
@@ -469,17 +741,28 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
 
             <div className="result-overview">
               <div className="score-card">
-                <div className="score-ring" style={{ "--score": `${result.match_score}%` }}>
+                <div
+                  className="score-ring"
+                  style={{
+                    "--score": `${Math.max(
+                      0,
+                      Math.min(100, Number(result.match_score) || 0)
+                    )}%`,
+                  }}
+                >
                   <div className="score-inner">
-                    <strong>{result.match_score}%</strong>
-                    <span>Similarity</span>
+                    <strong>
+                      {Math.round(Number(result.match_score) || 0)}%
+                    </strong>
+                    <span>Overall match</span>
                   </div>
                 </div>
+
                 <div className="score-description">
-                  <h3>Resume and job similarity</h3>
+                  <h3>Overall resume match</h3>
                   <p>
-                    This score estimates semantic text similarity. It is not
-                    your probability of getting hired.
+                    This score reflects the matching method configured in the
+                    backend. It is not your probability of getting hired.
                   </p>
                 </div>
               </div>
@@ -489,7 +772,7 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                   <CheckCircle2 size={21} />
                 </div>
                 <span>Matched skills</span>
-                <strong>{result.matched_skills.length}</strong>
+                <strong>{matchedSkills.length}</strong>
               </div>
 
               <div className="mini-result-card">
@@ -497,7 +780,83 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                   <XCircle size={21} />
                 </div>
                 <span>Missing skills</span>
-                <strong>{result.missing_skills.length}</strong>
+                <strong>{missingSkills.length}</strong>
+              </div>
+            </div>
+
+            <div className="panel score-breakdown-panel">
+              <div className="skills-title purple-text">
+                <BrainCircuit size={21} />
+                <h3>AI Score Breakdown</h3>
+              </div>
+
+              <p className="skills-description">
+                Understand the two measurements returned by your analyzer.
+              </p>
+
+              <div className="breakdown-item">
+                <div className="breakdown-label">
+                  <span>Semantic similarity</span>
+                  <strong>{Math.round(semanticScore)}%</strong>
+                </div>
+
+                <div
+                  className="breakdown-track"
+                  role="progressbar"
+                  aria-label="Semantic similarity"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={semanticScore}
+                >
+                  <div
+                    className="breakdown-fill semantic-fill"
+                    style={{ width: `${semanticScore}%` }}
+                  />
+                </div>
+
+                <p>
+                  Measures how closely the resume and job description relate
+                  in meaning.
+                </p>
+              </div>
+
+              <div className="breakdown-item">
+                <div className="breakdown-label">
+                  <span>Required-skill coverage</span>
+                  <strong>
+                    {skillScore === null
+                      ? "N/A"
+                      : `${Math.round(skillScore)}%`}
+                  </strong>
+                </div>
+
+                <div
+                  className="breakdown-track"
+                  role="progressbar"
+                  aria-label="Required-skill coverage"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={skillScore ?? 0}
+                >
+                  <div
+                    className="breakdown-fill skills-fill"
+                    style={{ width: `${skillScore ?? 0}%` }}
+                  />
+                </div>
+
+                <p>
+                  Measures the percentage of recognized job skills found in
+                  your resume.
+                </p>
+              </div>
+
+              <div className="breakdown-note">
+                <Lightbulb size={17} />
+                <span>
+                  {skillScore === null
+                    ? "No recognized required skills were detected, or the backend did not return a skill coverage score. Check the original job description."
+                    : "Your backend may combine semantic similarity (60%) and skill coverage (40%). Check backend/main.py to confirm the configured formula."}
+                </span>
               </div>
             </div>
 
@@ -508,9 +867,7 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                     <CheckCircle2 size={20} />
                     <h3>Matched skills</h3>
                   </div>
-                  <span className="skill-count">
-                    {result.matched_skills.length}
-                  </span>
+                  <span className="skill-count">{matchedSkills.length}</span>
                 </div>
 
                 <p className="skills-description">
@@ -518,8 +875,8 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                 </p>
 
                 <div className="skill-tags">
-                  {result.matched_skills.length ? (
-                    result.matched_skills.map((skill) => (
+                  {matchedSkills.length ? (
+                    matchedSkills.map((skill) => (
                       <span className="skill-tag matched" key={skill}>
                         <CheckCircle2 size={13} />
                         {skill}
@@ -527,7 +884,8 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                     ))
                   ) : (
                     <p className="empty-state">
-                      No matching skills were detected by the current dictionary.
+                      No matching skills were detected by the current
+                      dictionary.
                     </p>
                   )}
                 </div>
@@ -539,18 +897,16 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
                     <XCircle size={20} />
                     <h3>Missing skills</h3>
                   </div>
-                  <span className="skill-count">
-                    {result.missing_skills.length}
-                  </span>
+                  <span className="skill-count">{missingSkills.length}</span>
                 </div>
 
                 <p className="skills-description">
-                  Listed job skills not detected in your resume.
+                  Recognized job skills not detected in your resume.
                 </p>
 
                 <div className="skill-tags">
-                  {result.missing_skills.length ? (
-                    result.missing_skills.map((skill) => (
+                  {missingSkills.length ? (
+                    missingSkills.map((skill) => (
                       <span className="skill-tag missing" key={skill}>
                         <XCircle size={13} />
                         {skill}
@@ -565,6 +921,72 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
               </div>
             </div>
 
+            {/* OPTION 2: PERSONALIZED LEARNING ROADMAP */}
+            <div className="panel roadmap-panel">
+              <div className="skills-title purple-text">
+                <GraduationCap size={21} />
+                <h3>Your personalized learning roadmap</h3>
+              </div>
+
+              <p className="skills-description">
+                A practical starting plan based on the skills detected as
+                missing for this job. Adjust it to your level and available
+                time.
+              </p>
+
+              <div className="roadmap-list">
+                {getLearningRoadmap(missingSkills).map((item, index) => (
+                  <div
+                    className="roadmap-item"
+                    key={`${item.title}-${index}`}
+                  >
+                    <span className="roadmap-step">{index + 1}</span>
+                    <div>
+                      <h4>{item.title}</h4>
+                      <p>{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="result-disclaimer">
+                This roadmap is a suggested study plan based on detected
+                skills, not a guarantee of job readiness.
+              </p>
+            </div>
+
+            {/* OPTION 3: TARGETED RESUME IMPROVEMENTS */}
+            <div className="panel resume-actions-panel">
+              <div className="skills-title purple-text">
+                <ListChecks size={21} />
+                <h3>Resume improvements for this job</h3>
+              </div>
+
+              <p className="skills-description">
+                Make relevant experience clearer without claiming skills or
+                achievements you do not have.
+              </p>
+
+              <div className="resume-actions-list">
+                {getResumeActions(
+                  matchedSkills,
+                  missingSkills,
+                  suggestions
+                ).map((item, index) => (
+                  <div
+                    className="resume-action-item"
+                    key={`${item.title}-${index}`}
+                  >
+                    <div className="resume-action-number">{index + 1}</div>
+                    <div>
+                      <h4>{item.title}</h4>
+                      <p>{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="panel suggestions-panel">
               <div className="skills-title purple-text">
                 <Lightbulb size={21} />
@@ -572,12 +994,18 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
               </div>
 
               <div className="suggestion-list">
-                {result.suggestions.map((suggestion, index) => (
-                  <div className="suggestion-item" key={index}>
-                    <span className="suggestion-number">{index + 1}</span>
-                    <p>{suggestion}</p>
-                  </div>
-                ))}
+                {suggestions.length ? (
+                  suggestions.map((suggestion, index) => (
+                    <div className="suggestion-item" key={index}>
+                      <span className="suggestion-number">{index + 1}</span>
+                      <p>{suggestion}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty-state">
+                    No additional suggestions were returned by the backend.
+                  </p>
+                )}
               </div>
 
               <p className="result-disclaimer">
@@ -593,7 +1021,9 @@ We are looking for a Python developer with knowledge of machine learning, SQL, a
             <BrainCircuit size={18} />
             SkillSync
           </a>
-          <span>AI-powered resume matching · Built for smarter applications</span>
+          <span>
+            AI-powered resume matching · Built for smarter applications
+          </span>
         </footer>
       </main>
     </div>
